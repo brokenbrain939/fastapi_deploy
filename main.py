@@ -1,103 +1,29 @@
 from fastapi import FastAPI, HTTPException, Depends 
+from database.connector import Connector 
 from typing import Optional 
 from pydantic import BaseModel
+import os 
+from dotenv import load_dotenv
+load_dotenv()
+
+POSTGRES_USER=os.getenv('POSTGRES_USER')
+POSTGRES_DB_NAME=os.getenv('POSTGRES_DB_NAME')
+POSTGRES_HOST=os.getenv('POSTGRES_HOST')
+POSTGRES_PORT=os.getenv('POSTGRES_PORT')
+POSTGRES_PASSWORD=os.getenv('POSTGRES_PASSWORD')
+
+conn = Connector(
+  username=POSTGRES_USER, 
+  database=POSTGRES_DB_NAME, 
+  host=POSTGRES_HOST, 
+  port=POSTGRES_PORT, 
+  password=POSTGRES_PASSWORD or None
+)
 
 app = FastAPI(title="ToDoList", version='0.0.1')
 
-todos = [
-  {
-    "id": 1,
-    "title": "todo1",
-    "completed": False
-  },
-  {
-    "id": 2,
-    "title": "todo2",
-    "completed": False
-  },
-  {
-    "id": 3,
-    "title": "todo3",
-    "completed": False
-  },
-  {
-    "id": 4,
-    "title": "todo4",
-    "completed": False
-  },
-  {
-    "id": 5,
-    "title": "todo5",
-    "completed": False
-  },
-  {
-    "id": 6,
-    "title": "todo6",
-    "completed": False
-  },
-  {
-    "id": 7,
-    "title": "todo7",
-    "completed": False
-  },
-  {
-    "id": 8,
-    "title": "todo8",
-    "completed": False
-  },
-  {
-    "id": 9,
-    "title": "todo9",
-    "completed": False
-  },
-  {
-    "id": 10,
-    "title": "todo10",
-    "completed": False
-  },
-  {
-    "id": 11,
-    "title": "todo11",
-    "completed": False
-  },
-  {
-    "id": 12,
-    "title": "todo12",
-    "completed": False
-  },
-  {
-    "id": 13,
-    "title": "todo13",
-    "completed": False
-  },
-  {
-    "id": 14,
-    "title": "todo14",
-    "completed": False
-  },
-  {
-    "id": 15,
-    "title": "todo15",
-    "completed": False
-  },
-  {
-    "id": 16,
-    "title": "todo16",
-    "completed": False
-  }
-]
-
 def get_todo_storage():
-    return todos
-
-def delete_storage(idx):
-    if idx < len(todos):
-        todos.pop(idx)
-
-def update_storage(idx, todo_id, new_todo):
-    if idx < len(todos):
-        new_todo["id"] = todo_id
-        todos[idx] = new_todo
+  pass
 
 class ToDoCreate(BaseModel):
     title: str
@@ -117,19 +43,26 @@ async def health_check():
 
 @app.post("/todos", response_model=ToDoResponse, status_code=201)
 async def createTodo(
-    todo: ToDoCreate, 
-    storage=Depends(get_todo_storage)
+    todo: ToDoCreate
 ):
     """
     create a new todo list
     """
-    new_todo = {
-        "id": len(storage)+ 1, 
-        "title": todo.title, 
-        "completed": False
-    }
+    insert_query = """
+      INSERT INTO todolist 
+      (title, completed) 
+      VALUES (%s, %s) 
+      RETURNING id
+    """
 
-    storage.append(new_todo)
+    values = (todo.title, False)
+    new_id = conn.insert_query(insert_query, values)
+
+    new_todo = {
+      "id": new_id, 
+      "title": todo.title, 
+      "completed": False
+    }
 
     return new_todo
 
@@ -161,16 +94,25 @@ async def getTodo(
 
 @app.get("/todos/{todo_id}", response_model=ToDoResponse | None, status_code=200)
 async def getToDoById(
-    todo_id: int,
-    storage=Depends(get_todo_storage)
+    todo_id: int
 ):
-    """
-    get todo by its id
-    """
-    for todo in storage:
-        if todo["id"] == todo_id:
-            return todo 
-    raise HTTPException(status_code=404, detail="id does not found")
+    try:
+      """
+      get todo by its id
+      """
+      search_query = """
+        SELECT * FROM todolist
+        WHERE id = %s
+      """
+
+      values = (todo_id, )
+
+      res = conn.execute_query(search_query, values)
+      #returns a list because of fetch_all
+      res = res[0]
+      return res
+    except Exception as e:
+      raise HTTPException(status_code=404, detail="id does not found")
 
 @app.put("/todos/{todo_id}", response_model=ToDoResponse)
 async def updateToDo(
